@@ -1,4 +1,4 @@
-use crate::rover::{Direction, Rover};
+use crate::rover::{Direction, Rover, RoverProcessorV1};
 
 mod rover;
 
@@ -34,6 +34,7 @@ fn main() {
         pos_x: 0,
         pos_y: 0,
         direction: Direction::East,
+        processor:Box::new(RoverProcessorV1),
         map,
     };
     x.send_command(String::from("xxxx"));

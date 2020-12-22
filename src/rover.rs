@@ -6,11 +6,93 @@ pub enum Direction {
     South,
 }
 
+pub trait RoverProcessor {
+    fn parse_command<'x>(&self, command: &'x str) -> Result<Box<dyn Command + 'x>, &'static str>;
+}
+
+pub struct RoverProcessorV1;
+
+impl RoverProcessor for RoverProcessorV1 {
+    fn parse_command(&self, command: &str) -> Result<Box<dyn Command>, &'static str> {
+        let words: Vec<&str> = command.split("-").collect();
+
+        match words[0] {
+            "move" => {
+                let direction = match words[1] {
+                    "forward" => Ok(MoveDirection::Forward),
+                    "backward" => Ok(MoveDirection::Backward),
+                    _ => Err("Unknown direction"),
+                }?;
+
+                let move_count = command.split("-").last().ok_or("xxx")?;
+                let move_count: i32 = move_count.parse().map_err(|e| "not valid number")?;
+
+                Ok(Box::new(MoveCommand {
+                    distance: move_count,
+                    direction,
+                }))
+            }
+            "turn" => match words[1] {
+                "left" => Ok(Box::new(TurnCommand {
+                    direction: TurnDirection::Left,
+                })),
+                "right" => Ok(Box::new(TurnCommand {
+                    direction: TurnDirection::Right,
+                })),
+                _ => Err("Command not supported"),
+            },
+            _ => Err("Command not supported"),
+        }
+    }
+}
+
+pub struct RoverProcessorV2;
+
+impl RoverProcessor for RoverProcessorV2 {
+    fn parse_command<'x>(&self, command: &'x str) -> Result<Box<dyn Command + 'x>, &'static str> {
+        let words: Vec<&str> = command.split("-").collect();
+
+        match words[0] {
+            "move" => {
+                let direction = match words[1] {
+                    "forward" => Ok(MoveDirection::Forward),
+                    "backward" => Ok(MoveDirection::Backward),
+                    _ => Err("Unknown direction"),
+                }?;
+
+                let move_count = command.split("-").last().ok_or("xxx")?;
+                let move_count: i32 = move_count.parse().map_err(|e| "not valid number")?;
+
+                Ok(Box::new(MoveCommand {
+                    distance: move_count,
+                    direction,
+                }))
+            }
+            "turn" => match words[1] {
+                "left" => Ok(Box::new(TurnCommand {
+                    direction: TurnDirection::Left,
+                })),
+                "right" => Ok(Box::new(TurnCommand {
+                    direction: TurnDirection::Right,
+                })),
+                _ => Err("Command not supported"),
+            },
+            //"print-hohoh-hahahaha"
+            "print" => {
+                let message = &command[6..];
+                Ok(Box::new(PrintCommand::<'x>{ message }))
+            }
+            _ => Err("Command not supported"),
+        }
+    }
+}
+
 pub struct Rover {
     pub name: String,
     pub pos_x: i32,
     pub pos_y: i32,
     pub direction: Direction,
+    pub processor: Box<dyn RoverProcessor>,
     pub map: Vec<Vec<char>>,
 }
 
@@ -33,117 +115,114 @@ struct TurnCommand {
     direction: TurnDirection,
 }
 
-enum Command {
-    Move(MoveCommand),
-    Turn(TurnCommand),
+struct PrintCommand<'x> {
+    message: &'x str,
 }
 
-
-fn parse_command(command: String) -> Result<Command, &'static str> {
-    let words: Vec<&str> = command.split("-").collect();
-
-    match words[0] {
-        "move" => {
-            let direction = match words[1] {
-                "forward" => Ok(MoveDirection::Forward),
-                "backward" => Ok(MoveDirection::Backward),
-                _ => Err("Unknown direction"),
-            }?;
-
-            let move_count = command.split("-").last().ok_or("xxx")?;
-            let move_count: i32 = move_count.parse().map_err(|e| "not valid number")?;
-
-            Ok(Command::Move(MoveCommand {
-                distance: move_count,
-                direction,
-            }))
-        }
-        "turn" => match words[1] {
-            "left" => Ok(Command::Turn(TurnCommand {
-                direction: TurnDirection::Left,
-            })),
-            "right" => Ok(Command::Turn(TurnCommand {
-                direction: TurnDirection::Right,
-            })),
-            _ => Err("Command not supported"),
-        },
-        _ => Err("Command not supported"),
-    }
+trait Command {
+    fn execute(&self, rover: &mut Rover);
 }
 
-fn execute_turn(rover: &mut Rover, command: TurnCommand) {
-    let new_direction = match command.direction {
-        TurnDirection::Left =>
-            match rover.direction {
-                Direction::North => Direction::West,
-                Direction::East => Direction::North,
-                Direction::West => Direction::South,
-                Direction::South => Direction::East
+impl Command for MoveCommand {
+    fn execute(&self, rover: &mut Rover) {
+        let dim: i32 = rover.map.len() as i32;
+
+        let direction = match self.direction {
+            MoveDirection::Forward => 1,
+            MoveDirection::Backward => -1,
+        };
+
+        let mut distance;
+        match rover.direction {
+            Direction::North => {
+                distance = (rover.pos_y - self.distance * direction) % dim;
             }
-        TurnDirection::Right =>
-            match rover.direction {
-                Direction::North => Direction::East,
-                Direction::East => Direction::South,
-                Direction::West => Direction::North,
-                Direction::South => Direction::West
+            Direction::East => {
+                distance = (rover.pos_x + self.distance * direction) % dim;
             }
-    };
+            Direction::West => {
+                distance = (rover.pos_x - self.distance * direction) % dim;
+            }
+            Direction::South => {
+                distance = (rover.pos_y + self.distance * direction) % dim;
+            }
+        }
 
-    rover.direction = new_direction;
+        if distance < 0 {
+            distance = dim + distance
+        }
+
+        match rover.direction {
+            Direction::North | Direction::South => {
+                rover.pos_y = distance;
+            }
+            Direction::East | Direction::West => {
+                rover.pos_x = distance;
+            }
+        }
+    }
 }
 
-fn execute_move(rover: &mut Rover, command: MoveCommand) {
-    let dim: i32 = rover.map.len() as i32;
 
-    let direction = match command.direction {
-        MoveDirection::Forward => 1,
-        MoveDirection::Backward => -1,
-    };
+impl Command for TurnCommand {
+    fn execute(&self, rover: &mut Rover) {
+        let new_direction = match self.direction {
+            TurnDirection::Left =>
+                match rover.direction {
+                    Direction::North => Direction::West,
+                    Direction::East => Direction::North,
+                    Direction::West => Direction::South,
+                    Direction::South => Direction::East
+                }
+            TurnDirection::Right =>
+                match rover.direction {
+                    Direction::North => Direction::East,
+                    Direction::East => Direction::South,
+                    Direction::West => Direction::North,
+                    Direction::South => Direction::West
+                }
+        };
 
-    let mut distance;
-    match rover.direction {
-        Direction::North => {
-            distance = (rover.pos_y - command.distance * direction) % dim;
-        }
-        Direction::East => {
-            distance = (rover.pos_x + command.distance * direction) % dim;
-        }
-        Direction::West => {
-            distance = (rover.pos_x - command.distance * direction) % dim;
-        }
-        Direction::South => {
-            distance = (rover.pos_y + command.distance * direction) % dim;
-        }
+        rover.direction = new_direction;
     }
+}
 
-    if distance < 0 {
-        distance = dim + distance
-    }
-
-    match rover.direction {
-        Direction::North | Direction::South => {
-            rover.pos_y = distance;
-        }
-        Direction::East | Direction::West => {
-            rover.pos_x = distance;
-        }
+impl Command for PrintCommand<'_> {
+    fn execute(&self, rover: &mut Rover) {
+        println!("{}", self.message)
     }
 }
 
 impl Rover {
-    pub fn send_command(&mut self, command: String) {
-        let command = parse_command(command).unwrap();
+    pub fn send_command(&mut self, command_string: String) {
+        let command = self.processor.parse_command(&command_string).unwrap();
+        command.execute(self);
+    }
 
-        match command {
-            Command::Move(move_command) => execute_move(self, move_command),
-            Command::Turn(turn_command) => execute_turn(self, turn_command),
-        }
+    pub fn scan(&self) -> [&[char]; 3] {
+        let y_start : usize = (self.pos_y - 1) as usize;
+        let y_mid : usize = (self.pos_y) as usize;
+        let y_end : usize = (self.pos_y + 1) as usize;
+        let x_start : usize = (self.pos_x - 1) as usize;
+        let x_end : usize = (self.pos_x + 2) as usize;
+
+        let res1 = &self.map[y_start][x_start..x_end];
+        let res2 = &self.map[y_mid][x_start..x_end];
+        let res3 = &self.map[y_end][x_start..x_end];
+
+        [res1, res2, res3]
     }
 }
+
+// OOOO
+// OOOO
+// OOOO
+// OOOO
 
 #[cfg(test)]
 mod tests {
     use crate::rover::*;
+
     #[test]
     fn it_works() {
         let map = vec![vec!['O'; 10]; 10];
@@ -152,6 +231,7 @@ mod tests {
             pos_x: 0,
             pos_y: 0,
             direction: Direction::East,
+            processor: Box::new(RoverProcessorV1),
             map,
         };
 
@@ -169,6 +249,7 @@ mod tests {
             pos_x: 0,
             pos_y: 0,
             direction: Direction::East,
+            processor: Box::new(RoverProcessorV1),
             map,
         };
 
@@ -186,6 +267,7 @@ mod tests {
             pos_x: 0,
             pos_y: 0,
             direction: Direction::South,
+            processor: Box::new(RoverProcessorV1),
             map,
         };
 
@@ -203,6 +285,7 @@ mod tests {
             pos_x: 0,
             pos_y: 0,
             direction: Direction::South,
+            processor: Box::new(RoverProcessorV1),
             map,
         };
 
@@ -220,6 +303,7 @@ mod tests {
             pos_x: 9,
             pos_y: 9,
             direction: Direction::South,
+            processor: Box::new(RoverProcessorV1),
             map,
         };
 
@@ -237,6 +321,7 @@ mod tests {
             pos_x: 9,
             pos_y: 9,
             direction: Direction::South,
+            processor: Box::new(RoverProcessorV1),
             map,
         };
 
@@ -254,6 +339,7 @@ mod tests {
             pos_x: 0,
             pos_y: 0,
             direction: Direction::South,
+            processor: Box::new(RoverProcessorV1),
             map,
         };
 
@@ -271,6 +357,7 @@ mod tests {
             pos_x: 0,
             pos_y: 0,
             direction: Direction::South,
+            processor: Box::new(RoverProcessorV1),
             map,
         };
 
@@ -288,6 +375,7 @@ mod tests {
             pos_x: 0,
             pos_y: 0,
             direction: Direction::East,
+            processor: Box::new(RoverProcessorV1),
             map,
         };
 
@@ -305,6 +393,7 @@ mod tests {
             pos_x: 0,
             pos_y: 0,
             direction: Direction::East,
+            processor: Box::new(RoverProcessorV1),
             map,
         };
 
@@ -322,11 +411,52 @@ mod tests {
             pos_x: 0,
             pos_y: 0,
             direction: Direction::North,
+            processor: Box::new(RoverProcessorV1),
             map,
         };
 
         rover.send_command(String::from("turn-left"));
 
         assert_eq!(rover.direction, Direction::West);
+    }
+
+    #[test]
+    fn it_works_print() {
+        let map = vec![vec!['O'; 10]; 10];
+        let mut rover = Rover {
+            name: String::from("Discovery"),
+            pos_x: 0,
+            pos_y: 0,
+            direction: Direction::North,
+            processor: Box::new(RoverProcessorV2),
+            map,
+        };
+
+        rover.send_command(String::from("print-xxxx-aaaa"));
+
+        assert_eq!(rover.direction, Direction::West);
+    }
+
+    #[test]
+    fn it_works_scan() {
+        let res : [&[char]; 3];
+
+        {
+            let mut map = vec![vec!['O'; 10]; 10];
+            let mut x = 1;
+            let mut rover = Rover {
+                name: String::from("Discovery"),
+                pos_x: x,
+                pos_y: 1,
+                direction: Direction::North,
+                processor: Box::new(RoverProcessorV2),
+                map,
+            };
+
+            x = 2;
+
+            res =  rover.scan();
+            assert_eq!(res, [['O','X','O'], ['O','O','O'], ['O','O','Y']]);
+        }
     }
 }
