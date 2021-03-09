@@ -45,8 +45,10 @@ fn create_from_2(_item: &Type2) -> OwnOrNot<String> {
 
 fn usage() ->() {
     let t1 = Type1{request : String::from("tata")};
-    let res1 = create_from_1(&t1).deref();
+    let sp1 = create_from_1(&t1);
+    let res1 = sp1.deref();
 
     let t2 = Type2 { };
-    let res2 = create_from_2(&t2).deref();
+    let sp2 = create_from_2(&t2);
+    let res2 = sp2.deref();
 }
