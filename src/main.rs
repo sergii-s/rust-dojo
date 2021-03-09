@@ -1,6 +1,7 @@
 use crate::rover::{Direction, Rover, RoverProcessorV1};
 
 mod rover;
+mod sp;
 
 // Implement Mars rover logic.
 
