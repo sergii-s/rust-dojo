@@ -1,44 +1,83 @@
-use crate::rover::{Direction, Rover, RoverProcessorV1};
+use actix::prelude::*;
+use std::borrow::Borrow;
+use std::time::Duration;
 
-mod rover;
-mod sp;
+struct PubSubEventA;
+struct PubSubEventB;
 
-// Implement Mars rover logic.
+#[derive(Message)]
+#[rtype(result = "()")]
+struct PubSubMessage;
 
-// Mars rover has it position and can execute commands.
+#[derive(Message)]
+#[rtype(result = "()")]
+struct PubSubMessageBatch(Vec<PubSubMessage>);
 
-// MAP 10x10
-// O -> terre
-// X -> mountain
-
-// * Commands are sent as text.
-// * move-forward-x
-// * move-backward-x
-// * turn-left
-// * turn-right
-
-// 0000
-// 0X00
-// 0000
-// 0000
-
-// * Obstacles detections (stop and report)
-// * Map is sphere
-// * Bonuses
-// * map can be edited
-
-fn main() {
-    let map = vec![vec!['O'; 10]; 10];
-
-    let mut x = Rover {
-        name: String::from("Discovery"),
-        pos_x: 0,
-        pos_y: 0,
-        direction: Direction::East,
-        processor:Box::new(RoverProcessorV1),
-        map,
-    };
-    x.send_command(String::from("xxxx"));
-
-    println!("Hello, rover!");
+/// Actor that provides order shipped event subscriptions
+struct MessageSender {
+    buffer : Vec<PubSubMessage>,
+    target : Recipient<PubSubMessageBatch>
 }
+
+impl MessageSender {
+    fn batch(&mut self) {
+        let batch = self.buffer.drain(..).collect();
+        self.target.borrow().do_send(PubSubMessageBatch(batch));
+    }
+}
+
+impl Actor for MessageSender {
+    type Context = Context<Self>;
+
+    fn started(&mut self, ctx: &mut Self::Context) {
+        ctx.set_mailbox_capacity(10);
+    }
+}
+
+impl Handler<PubSubMessage> for MessageSender {
+    type Result = ();
+
+    fn handle(&mut self, msg: PubSubMessage, ctx: &mut Self::Context) {
+        println!("Got message!");
+        self.buffer.push(msg);
+        if self.buffer.len() >= 3 {
+            self.batch();
+        }
+    }
+}
+
+struct BatchMessageSenderActor;
+impl Actor for BatchMessageSenderActor {
+    type Context = Context<Self>;
+
+    fn started(&mut self, ctx: &mut Self::Context) {
+        ctx.set_mailbox_capacity(1);
+    }
+}
+impl Handler<PubSubMessageBatch> for BatchMessageSenderActor {
+    type Result = ();
+    fn handle(&mut self, msg: PubSubMessageBatch, ctx: &mut Self::Context) {
+        println!("Got {} batch!", msg.0.len());
+    }
+}
+
+#[actix::main]
+async fn main() {
+    let batch_agent = BatchMessageSenderActor.start();
+    let sender = MessageSender {
+        buffer : Vec::new(),
+        target : batch_agent.recipient()
+    }.start();
+    println!("started!");
+
+    let _ = sender.do_send(PubSubMessage);
+    let _ = sender.do_send(PubSubMessage);
+    let _ = sender.do_send(PubSubMessage);
+    let _ = sender.do_send(PubSubMessage);
+    let _ = sender.do_send(PubSubMessage);
+    let _ = sender.do_send(PubSubMessage);
+    let _ = sender.do_send(PubSubMessage);
+
+    tokio::time::sleep(Duration::from_secs(1)).await;
+}
+
