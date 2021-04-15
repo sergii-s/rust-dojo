@@ -38,7 +38,7 @@ impl<T: 'static + Unpin + Send> Handler<PubSubMessage<T>> for MessageSenderActor
 }
 
 
-// ###################################### to file
+// ###################################### to file - BATCHING ACTOR
 
 
 const BATCH_SIZE: usize = 3;
@@ -66,7 +66,7 @@ impl Actor for MessageBatchingActor {
     type Context = Context<Self>;
 
     fn started(&mut self, ctx: &mut Self::Context) {
-        ctx.set_mailbox_capacity(3);
+        ctx.set_mailbox_capacity(BATCH_SIZE*2);
     }
 }
 
@@ -137,19 +137,27 @@ impl PubSub {
     }
     fn create_sender<T: 'static + Unpin + Send>(self: &mut PubSub, target_topic: &'static str) -> Addr<MessageSenderActor<T>> {
         //todo do not clone
-        let rec = self.push_actor.clone().recipient();
-        let batch_actor : &Addr<MessageBatchingActor> =
-            self.batch_actors.entry(target_topic).or_insert_with( ||  {
-                    MessageBatchingActor {
+
+
+        let batch_recipient  =
+            match self.batch_actors.entry(target_topic) {
+                Entry::Occupied(mut o) => o.get_mut().clone().recipient(),
+                Entry::Vacant(v) => {
+                    let push_recipient = self.push_actor.clone().recipient();
+                    let actor = MessageBatchingActor {
                         buffer: vec![],
                         timeout_handler: None,
-                        target: rec,
+                        target: push_recipient,
                         target_topic
-                    }.start()
-                });
+                    }.start();
+                    let recipient = actor.clone().recipient();
+                    v.insert(actor);
+                    recipient
+                }
+            };
 
         let sender_actor = MessageSenderActor {
-            target: batch_actor.borrow().recipient(),
+            target: batch_recipient,
             resource_type: PhantomData
         };
         sender_actor.start()
@@ -160,16 +168,24 @@ impl PubSub {
 
 struct PubSubEventA;
 struct PubSubEventB;
+struct PubSubEventC;
 
 #[actix::main]
 async fn main() {
     let mut pub_sub = PubSub::create();
 
-    let senderA : Addr<MessageSenderActor<PubSubEventA>> = pub_sub.create_sender("topic1");
-    let senderB : Addr<MessageSenderActor<PubSubEventB>> = pub_sub.create_sender("topic1");
+    let sender_a: Addr<MessageSenderActor<PubSubEventA>> = pub_sub.create_sender("topic1");
+    let sender_b: Addr<MessageSenderActor<PubSubEventB>> = pub_sub.create_sender("topic1");
+    let sender_c: Addr<MessageSenderActor<PubSubEventC>> = pub_sub.create_sender("topic2");
 
-    let _ = senderA.borrow().do_send(PubSubMessage(Box::new(PubSubEventA)));
-    let _ = senderA.borrow().do_send(PubSubMessage(Box::new(PubSubEventA)));
+    let _ = sender_a.borrow().do_send(PubSubMessage(Box::new(PubSubEventA)));
+    let _ = sender_a.borrow().do_send(PubSubMessage(Box::new(PubSubEventA)));
+    let _ = sender_b.borrow().do_send(PubSubMessage(Box::new(PubSubEventB)));
+    let _ = sender_b.borrow().do_send(PubSubMessage(Box::new(PubSubEventB)));
+    let _ = sender_c.borrow().do_send(PubSubMessage(Box::new(PubSubEventC)));
+    let _ = sender_c.borrow().do_send(PubSubMessage(Box::new(PubSubEventC)));
+    let _ = sender_c.borrow().do_send(PubSubMessage(Box::new(PubSubEventC)));
+    let _ = sender_c.borrow().do_send(PubSubMessage(Box::new(PubSubEventC)));
     // let _ = sender.do_send(PubSubMessage);
     // let _ = sender.do_send(PubSubMessage);
     // let _ = sender.do_send(PubSubMessage);
