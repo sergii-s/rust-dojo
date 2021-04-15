@@ -1,38 +1,24 @@
 use actix::prelude::*;
 use std::borrow::Borrow;
 use std::time::Duration;
+use std::collections::HashMap;
+use std::ops::Add;
+use std::marker::PhantomData;
+use std::collections::hash_map::Entry;
 
-const BATCH_SIZE: usize = 3;
-const BATCH_TIMEOUT: Duration = Duration::from_secs(1);
-
-
-struct PubSubEventA;
-struct PubSubEventB;
-
-#[derive(Message)]
-#[rtype(result = "()")]
-struct PubSubMessage;
+// ###################################### to file
 
 #[derive(Message)]
 #[rtype(result = "()")]
-struct PubSubMessageBatch(Vec<PubSubMessage>);
+struct PubSubMessage<T: Send>(Box<T>);
 
 /// Actor that provides order shipped event subscriptions
-struct MessageSender {
-    buffer: Vec<PubSubMessage>,
-    timeout_handler: Option<SpawnHandle>,
-    target: Recipient<PubSubMessageBatch>,
+struct MessageSenderActor<T: Send> {
+    target: Recipient<PubSubSerializedMessage>,
+    resource_type: PhantomData<T>,
 }
 
-impl MessageSender {
-    fn batch(&mut self) {
-        let batch = self.buffer.drain(..).collect();
-        self.target.borrow().do_send(PubSubMessageBatch(batch));
-        self.timeout_handler = None;
-    }
-}
-
-impl Actor for MessageSender {
+impl<T: 'static + Unpin + Send> Actor for MessageSenderActor<T> {
     type Context = Context<Self>;
 
     fn started(&mut self, ctx: &mut Self::Context) {
@@ -40,12 +26,53 @@ impl Actor for MessageSender {
     }
 }
 
-impl Handler<PubSubMessage> for MessageSender {
+impl<T: 'static + Unpin + Send> Handler<PubSubMessage<T>> for MessageSenderActor<T> {
     type Result = ();
 
-    fn handle(&mut self, msg: PubSubMessage, ctx: &mut Self::Context) {
+    fn handle(&mut self, msg: PubSubMessage<T>, ctx: &mut Self::Context) {
         println!("Got message!");
+        //todo serialize using protobuf T to u8[]
+        let serialized : Vec<u8> = Vec::new();
+        self.target.borrow().do_send(PubSubSerializedMessage(serialized));
+    }
+}
 
+
+// ###################################### to file
+
+
+const BATCH_SIZE: usize = 3;
+const BATCH_TIMEOUT: Duration = Duration::from_secs(1);
+
+#[derive(Message)]
+#[rtype(result = "()")]
+struct PubSubSerializedMessage(Vec<u8>);
+
+struct MessageBatchingActor {
+    buffer: Vec<PubSubSerializedMessage>,
+    timeout_handler: Option<SpawnHandle>,
+    target: Recipient<PubSubMessageBatch>,
+    target_topic: &'static str,
+}
+
+impl MessageBatchingActor {
+    fn batch(&mut self) {
+        let batch = self.buffer.drain(..).collect();
+        self.target.borrow().do_send(PubSubMessageBatch{messages : batch, target : self.target_topic});
+        self.timeout_handler = None;
+    }
+}
+impl Actor for MessageBatchingActor {
+    type Context = Context<Self>;
+
+    fn started(&mut self, ctx: &mut Self::Context) {
+        ctx.set_mailbox_capacity(3);
+    }
+}
+
+impl Handler<PubSubSerializedMessage> for MessageBatchingActor {
+    type Result = ();
+    fn handle(&mut self, msg: PubSubSerializedMessage, ctx: &mut Self::Context) {
         self.buffer.push(msg);
 
         match self.timeout_handler {
@@ -67,39 +94,88 @@ impl Handler<PubSubMessage> for MessageSender {
     }
 }
 
-struct BatchMessageSenderActor;
-impl Actor for BatchMessageSenderActor {
+
+// ###################################### to file
+
+#[derive(Message)]
+#[rtype(result = "()")]
+struct PubSubMessageBatch {
+    messages : Vec <PubSubSerializedMessage>,
+    target : &'static str
+}
+
+struct MessagePushActor;
+
+impl Actor for MessagePushActor {
     type Context = Context<Self>;
 
     fn started(&mut self, ctx: &mut Self::Context) {
         ctx.set_mailbox_capacity(3);
     }
 }
-impl Handler<PubSubMessageBatch> for BatchMessageSenderActor {
+
+impl Handler<PubSubMessageBatch> for MessagePushActor {
     type Result = ();
     fn handle(&mut self, msg: PubSubMessageBatch, ctx: &mut Self::Context) {
-        println!("Got {} batch!", msg.0.len());
+        println!("Pushing {} batch to pubsub topic {}!", msg.messages.len(), msg.target);
     }
 }
 
+// ###################################### to file
+
+struct PubSub {
+    batch_actors : HashMap<&'static str, Addr<MessageBatchingActor>>,
+    push_actor : Addr<MessagePushActor>,
+}
+
+impl PubSub {
+    fn create() -> PubSub {
+        PubSub {
+            batch_actors: Default::default(),
+            push_actor: MessagePushActor.start()
+        }
+    }
+    fn create_sender<T: 'static + Unpin + Send>(self: &mut PubSub, target_topic: &'static str) -> Addr<MessageSenderActor<T>> {
+        //todo do not clone
+        let rec = self.push_actor.clone().recipient();
+        let batch_actor : &Addr<MessageBatchingActor> =
+            self.batch_actors.entry(target_topic).or_insert_with( ||  {
+                    MessageBatchingActor {
+                        buffer: vec![],
+                        timeout_handler: None,
+                        target: rec,
+                        target_topic
+                    }.start()
+                });
+
+        let sender_actor = MessageSenderActor {
+            target: batch_actor.borrow().recipient(),
+            resource_type: PhantomData
+        };
+        sender_actor.start()
+    }
+}
+
+// ######################################
+
+struct PubSubEventA;
+struct PubSubEventB;
+
 #[actix::main]
 async fn main() {
-    let batch_agent = BatchMessageSenderActor.start();
-    let sender = MessageSender {
-        buffer: Vec::new(),
-        target: batch_agent.recipient(),
-        timeout_handler: None,
-    }
-    .start();
-    println!("started!");
+    let mut pub_sub = PubSub::create();
 
-    let _ = sender.do_send(PubSubMessage);
-    let _ = sender.do_send(PubSubMessage);
-    let _ = sender.do_send(PubSubMessage);
-    let _ = sender.do_send(PubSubMessage);
-    let _ = sender.do_send(PubSubMessage);
-    let _ = sender.do_send(PubSubMessage);
-    let _ = sender.do_send(PubSubMessage);
+    let senderA : Addr<MessageSenderActor<PubSubEventA>> = pub_sub.create_sender("topic1");
+    let senderB : Addr<MessageSenderActor<PubSubEventB>> = pub_sub.create_sender("topic1");
+
+    let _ = senderA.borrow().do_send(PubSubMessage(Box::new(PubSubEventA)));
+    let _ = senderA.borrow().do_send(PubSubMessage(Box::new(PubSubEventA)));
+    // let _ = sender.do_send(PubSubMessage);
+    // let _ = sender.do_send(PubSubMessage);
+    // let _ = sender.do_send(PubSubMessage);
+    // let _ = sender.do_send(PubSubMessage);
+    // let _ = sender.do_send(PubSubMessage);
+    // let _ = sender.do_send(PubSubMessage);
 
     tokio::time::sleep(Duration::from_secs(5)).await;
 }
