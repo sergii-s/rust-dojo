@@ -26,16 +26,23 @@ impl<T: 'static + Unpin + Send> Actor for MessageSenderActor<T> {
 }
 
 impl<T: 'static + Unpin + Send> Handler<PubSubMessage<T>> for MessageSenderActor<T> {
-    type Result = ResponseFuture<()>;
+    type Result = ();
 
     fn handle(&mut self, msg: PubSubMessage<T>, ctx: &mut Self::Context) -> Self::Result {
         println!("Got message!");
         //todo serialize using protobuf T to u8[]
         let serialized: Vec<u8> = Vec::new();
-        let target = self.target.clone();
-        Box::pin(async move {
-            target.send(PubSubSerializedMessage(serialized)).await;
-        })
+
+        self.target.send(PubSubSerializedMessage(serialized))
+            .into_actor(self)
+            .map(|res, _act, ctx| match res {
+                Ok(_stream) => {}
+                Err(err) => {
+                    println!("Batch error: {}", err);
+                    ctx.stop();
+                }
+            })
+            .wait(ctx);
     }
 }
 
