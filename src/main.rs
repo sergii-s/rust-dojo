@@ -1,54 +1,30 @@
-use actix::prelude::*;
+// use actix::prelude::*;
 use std::borrow::Borrow;
 use std::collections::hash_map::Entry;
 use std::collections::HashMap;
 use std::marker::PhantomData;
 use std::time::Duration;
+use std::sync::Arc;
+use std::sync::atomic::AtomicBool;
+use tokio::sync::Mutex;
+use tokio::sync::oneshot;
+use tokio::sync::oneshot::{Receiver, Sender};
+use std::ops::Deref;
+use tokio::sync::oneshot::error::RecvError;
+use actix::{Message, Recipient, Actor, Context, Handler, WrapFuture, ActorFutureExt, SpawnHandle, ContextFutureSpawner, ActorContext, AsyncContext, Addr, MailboxError, Running, ResponseFuture, ActorState};
+use std::io::Error;
+use actix::dev::SendError;
+use core::mem;
+use std::pin::Pin;
+use std::future::Future;
 
 // ###################################### to file - MessageSenderActor
 
 #[derive(Message)]
 #[rtype(result = "()")]
-struct PubSubMessage<T: Send>(Box<T>);
+struct ShutDown;
 
-/// Actor that provides order shipped event subscriptions
-struct MessageSenderActor<T: Send> {
-    target: Recipient<PubSubSerializedMessage>,
-    resource_type: PhantomData<T>,
-}
-
-impl<T: 'static + Unpin + Send> Actor for MessageSenderActor<T> {
-    type Context = Context<Self>;
-
-    fn started(&mut self, ctx: &mut Self::Context) {
-        ctx.set_mailbox_capacity(100);
-    }
-}
-
-impl<T: 'static + Unpin + Send> Handler<PubSubMessage<T>> for MessageSenderActor<T> {
-    type Result = ();
-
-    fn handle(&mut self, msg: PubSubMessage<T>, ctx: &mut Self::Context) -> Self::Result {
-        println!("Got message!");
-        //todo serialize using protobuf T to u8[]
-        let serialized: Vec<u8> = Vec::new();
-
-        self.target.send(PubSubSerializedMessage(serialized))
-            .into_actor(self)
-            .map(|res, _act, ctx| match res {
-                Ok(_stream) => {}
-                Err(err) => {
-                    println!("Batch error: {}", err);
-                    ctx.stop();
-                }
-            })
-            .wait(ctx);
-    }
-}
-
-// ###################################### to file - MessageBatchingActor
-
-const BATCH_SIZE: usize = 3;
+const BATCH_SIZE: usize = 5;
 const BATCH_TIMEOUT: Duration = Duration::from_secs(1);
 
 #[derive(Message)]
@@ -60,6 +36,7 @@ struct MessageBatchingActor {
     timeout_handler: Option<SpawnHandle>,
     target: Recipient<PubSubMessageBatch>,
     target_topic: &'static str,
+    on_stop: Option<Sender<()>>,
 }
 
 impl MessageBatchingActor {
@@ -69,26 +46,35 @@ impl MessageBatchingActor {
 
         self.target
             .borrow()
-            .send(PubSubMessageBatch {
+            .do_send(PubSubMessageBatch {
                 messages: batch,
                 target_topic: self.target_topic,
-            })
-            .into_actor(self)
-            .map(|res, _act, ctx| match res {
-                Ok(_stream) => {}
-                Err(err) => {
-                    println!("Batch error: {}", err);
-                    ctx.stop();
-                }
-            })
-            .wait(ctx);
+            });
     }
 }
 impl Actor for MessageBatchingActor {
     type Context = Context<Self>;
 
     fn started(&mut self, ctx: &mut Self::Context) {
-        ctx.set_mailbox_capacity(BATCH_SIZE * 2);
+        ctx.set_mailbox_capacity(BATCH_SIZE * 5);
+    }
+
+    fn stopping(&mut self, ctx: &mut Self::Context) -> Running {
+        println!("BatchActor stopping");
+        if self.buffer.len() > 0 {
+            println!("==>>>>> LAST BATCH");
+            self.send_batch(ctx);
+        }
+        Running::Stop
+    }
+
+    fn stopped(&mut self, ctx: &mut Self::Context) {
+        println!("BatchActor stopped");
+        let sender = mem::replace(&mut self.on_stop, None);
+        match sender {
+            None => {}
+            Some(s) => { s.send(()); }
+        }
     }
 }
 
@@ -116,6 +102,21 @@ impl Handler<PubSubSerializedMessage> for MessageBatchingActor {
     }
 }
 
+impl Handler<ShutDown> for MessageBatchingActor {
+    type Result = ResponseFuture<()>;
+
+    fn handle(&mut self, msg: ShutDown, ctx: &mut Self::Context) -> Self::Result {
+        let (tx, tr) = tokio::sync::oneshot::channel();
+        self.on_stop = Some(tx);
+        ctx.stop();
+        Box::pin(async move {
+            println!("MessagePushActor waiting to be stopped");
+            tr.await;
+            println!("MessagePushActor is stopped");
+        })
+    }
+}
+
 // ###################################### to file
 
 #[derive(Message)]
@@ -126,7 +127,8 @@ struct PubSubMessageBatch {
 }
 
 struct MessagePushActor {
-    cnt: i32,
+    cnt: usize,
+    on_stop: Option<Sender<()>>,
 }
 
 impl Actor for MessagePushActor {
@@ -135,22 +137,52 @@ impl Actor for MessagePushActor {
     fn started(&mut self, ctx: &mut Self::Context) {
         ctx.set_mailbox_capacity(10);
     }
+
+    fn stopping(&mut self, _: &mut Self::Context) -> Running {
+        println!("MessagePushActor stopping");
+        Running::Stop
+    }
+
+    fn stopped(&mut self, _: &mut Self::Context) {
+        let sender = mem::replace(&mut self.on_stop, None);
+        match sender {
+            None => {}
+            Some(s) => { s.send(()); }
+        }
+        println!("MessagePushActor stopped");
+    }
 }
 
 impl Handler<PubSubMessageBatch> for MessagePushActor {
     type Result = ();
     fn handle(&mut self, msg: PubSubMessageBatch, ctx: &mut Self::Context) -> Self::Result {
-        self.cnt += 1;
+        self.cnt += msg.messages.len();
         let new_cnt = self.cnt;
 
         println!(
-            "Pushing {} batch to pubsub topic {}!",
-            new_cnt, msg.target_topic
+            "Pushing batch to pubsub topic {}.Total messages send {}!",
+            msg.target_topic, new_cnt
         );
+
         tokio::time::sleep(Duration::from_secs(5))
             .into_actor(self)
             .map(|res, _act, ctx| println!("Batch is pushed!"))
             .wait(ctx);
+    }
+}
+
+impl Handler<ShutDown> for MessagePushActor {
+    type Result = ResponseFuture<()>;
+
+    fn handle(&mut self, msg: ShutDown, ctx: &mut Self::Context) -> Self::Result {
+        let (tx, tr) = tokio::sync::oneshot::channel();
+        self.on_stop = Some(tx);
+        ctx.stop();
+        Box::pin(async move {
+            println!("MessagePushActor waiting to be stopped");
+            tr.await;
+            println!("MessagePushActor is stopped");
+        })
     }
 }
 
@@ -162,12 +194,18 @@ struct PubSub {
 }
 
 struct MessageSender<T: 'static + Unpin + Send> {
-    actor_addr: Addr<MessageSenderActor<T>>,
+    target: Recipient<PubSubSerializedMessage>,
+    resource_type: PhantomData<T>,
 }
 
 impl<T: 'static + Unpin + Send> MessageSender<T> {
-    async fn send(self: &MessageSender<T>, message: T) {
-        self.actor_addr.send(PubSubMessage(Box::new(message))).await;
+    async fn send(self: &MessageSender<T>, message: T) -> Result<(), &'static str> {
+        let serialized: Vec<u8> = Vec::new(); // message.to_byte_array
+        let res = self.target.send(PubSubSerializedMessage(serialized)).await;
+        match res {
+            Ok(_) => Ok(()),
+            _ => Err("Receiver is closed"),
+        }
     }
 }
 
@@ -175,9 +213,10 @@ impl PubSub {
     fn create() -> PubSub {
         PubSub {
             batch_actors: Default::default(),
-            push_actor: MessagePushActor { cnt: 0 }.start(),
+            push_actor: MessagePushActor { cnt: 0, on_stop: None }.start(),
         }
     }
+
     fn create_sender<T: 'static + Unpin + Send>(
         self: &mut PubSub,
         target_topic: &'static str,
@@ -186,11 +225,13 @@ impl PubSub {
             Entry::Occupied(mut o) => o.get_mut().clone().recipient(),
             Entry::Vacant(v) => {
                 let push_recipient = self.push_actor.clone().recipient();
+
                 let actor = MessageBatchingActor {
                     buffer: vec![],
                     timeout_handler: None,
                     target: push_recipient,
                     target_topic,
+                    on_stop: None
                 }
                 .start();
                 let recipient = actor.clone().recipient();
@@ -199,19 +240,34 @@ impl PubSub {
             }
         };
 
-        let sender_actor = MessageSenderActor {
-            target: batch_recipient,
-            resource_type: PhantomData,
-        };
         MessageSender {
-            actor_addr: sender_actor.start(),
+            target: batch_recipient,
+            resource_type: PhantomData::default()
         }
+    }
+
+    async fn run_until(
+        self: &mut PubSub,
+    ) {
+        match tokio::signal::ctrl_c().await {
+            Ok(_) => {}
+            Err(_) => {}
+        }
+        for x in self.batch_actors.values().into_iter() {
+            println!("Waiting to shutdown batch actor");
+            let r = x.send(ShutDown).await;
+            match r {
+                Ok(res) => res,
+                Err(_) => println!("Failed to shutdown batch actor")
+            }
+        }
+        self.push_actor.send(ShutDown).await;
     }
 }
 
 // ######################################
 
-struct PubSubEventA;
+struct PubSubEventA(i32);
 struct PubSubEventB;
 struct PubSubEventC;
 
@@ -220,24 +276,23 @@ async fn main() {
     let mut pub_sub = PubSub::create();
 
     let sender_a: MessageSender<PubSubEventA> = pub_sub.create_sender("topic1");
-    let sender_b: MessageSender<PubSubEventB> = pub_sub.create_sender("topic1");
-    let sender_c: MessageSender<PubSubEventC> = pub_sub.create_sender("topic2");
 
-    for i in 1..10000 {
-        let _ = sender_a.borrow().send(PubSubEventA).await;
-        let _ = sender_a.borrow().send(PubSubEventA).await;
-        let _ = sender_a.borrow().send(PubSubEventA).await;
-        // let _ = sender_a.borrow().do_send(PubSubMessage(Box::new(PubSubEventA)));
-        // let _ = sender_a.borrow().do_send(PubSubMessage(Box::new(PubSubEventA)));
-        // let _ = sender_a.borrow().do_send(PubSubMessage(Box::new(PubSubEventA)));
-        // let _ = sender_b.borrow().do_send(PubSubMessage(Box::new(PubSubEventB)));
-        // let _ = sender_b.borrow().do_send(PubSubMessage(Box::new(PubSubEventB)));
-        // let _ = sender_c.borrow().do_send(PubSubMessage(Box::new(PubSubEventC)));
-        // let _ = sender_c.borrow().do_send(PubSubMessage(Box::new(PubSubEventC)));
-        // let _ = sender_c.borrow().do_send(PubSubMessage(Box::new(PubSubEventC)));
-        // let _ = sender_c.borrow().do_send(PubSubMessage(Box::new(PubSubEventC)));
-        // tokio::time::sleep(Duration::from_millis(200)).await;
-    }
+    let t = tokio::task::spawn(async move {
+        for i in 1..10000 {
+            match sender_a.borrow().send(PubSubEventA(i)).await {
+                Ok(_) => println!("Send {} message!", i),
+                Err(_) => {
+                    println!("Sender is closed!");
+                    break;
+                }
+            };
 
-    tokio::time::sleep(Duration::from_secs(100)).await;
+            tokio::time::sleep(Duration::from_millis(200)).await;
+        }
+    });
+
+    println!("Waiting for Ctrl-C...");
+    pub_sub.run_until().await;
+    println!("Gracefully stopped");
+    t.await;
 }
