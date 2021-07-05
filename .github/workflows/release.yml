@@ -22,15 +22,16 @@ jobs:
     steps:
     - name: Checkout
       uses: actions/checkout@v2
-      ref: 'develop'
+      with:
+        ref: 'develop'
     - run: |
-        git checkout -b release/v${{ version }}
+        git checkout -b release/v${{ github.event.inputs.version }}
         git merge master
         git push
     - name: pull-request
       uses: repo-sync/pull-request@v2
-      pr_title: "Release ${{ version }}"
+      pr_title: "Release ${{ github.event.inputs.version }}"
       with:
-        source_branch: ${{ version }}
+        source_branch: release/v${{ github.event.inputs.version }}
         destination_branch: "master"
         github_token: ${{ secrets.GITHUB_TOKEN }}
