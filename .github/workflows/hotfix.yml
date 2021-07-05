@@ -2,7 +2,7 @@ name: Create HotFix
 
 on: 
   pull_request_target:
-    types: [opened]
+    types: [opened, reopened]
     branches:
     - 'fix/*'
 
@@ -10,6 +10,8 @@ jobs:
   pull-request:
     runs-on: ubuntu-latest
     steps:
+    - name: greeting
+      run : "echo ${{ github.event.pull_request.base.ref }}"
     - uses: actions/checkout@v2  
     - name: pull-request
       uses: repo-sync/pull-request@v2
