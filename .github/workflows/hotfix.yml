@@ -10,10 +10,12 @@ jobs:
   pull-request:
     runs-on: ubuntu-latest
     steps:
+    - name: Send greeting
+      run: echo "Hello ${{ github.event.pull_request.base.ref }}"
     - uses: actions/checkout@v2  
     - name: pull-request
       uses: repo-sync/pull-request@v2
       with:
-        source_branch: ${{ github.event.pull_request.base.ref }}
+        # source_branch: ${{ github.event.pull_request.base.ref }}
         destination_branch: "develop"
         github_token: ${{ secrets.GITHUB_TOKEN }}
