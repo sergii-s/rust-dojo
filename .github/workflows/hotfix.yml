@@ -1,6 +1,6 @@
 name: Create HotFix
 
-on: [pull_request]
+on: [pull_request_target]
 
 jobs:
   pull-request:
@@ -10,5 +10,6 @@ jobs:
     - name: pull-request
       uses: repo-sync/pull-request@v2
       with:
+        source_branch: 
         destination_branch: "develop"
         github_token: ${{ secrets.GITHUB_TOKEN }}
