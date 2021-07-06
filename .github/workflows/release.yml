@@ -34,11 +34,11 @@ jobs:
         fi
         echo "::set-output name=version::$VERSION"
         git checkout develop
+        MESSAGE=`git log --merges --first-parent origin/master..HEAD --pretty=format:'- [ ] \`%h\` - %s' | sed -E 's|Merge pull request (#[0-9]+).*|PR \1|'`
         git checkout -b release/$VERSION
         git config --global user.name ${{ github.actor }}
         git merge origin/master
         git push --set-upstream origin release/$VERSION
-        MESSAGE=`git log --merges --first-parent master..HEAD --pretty=format:'- [ ] \`%h\` - %s' | sed -E 's|Merge pull request (#[0-9]+).*|PR \1|'`
         echo "::set-output name=message::$MESSAGE"
       id: release-branch
     - name: pull-request
