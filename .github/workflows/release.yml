@@ -16,6 +16,7 @@ jobs:
       with:
         ref: develop    
     - run: |
+        git fetch --tags
         git fetch --no-tags --unshallow origin master
         VERSION=`git describe --match "${{ github.event.inputs.major-version }}.[0-9]*" --abbrev=0 --tags || echo "${{ github.event.inputs.major-version }}.0"`
         VERSION_BITS=(${VERSION//./ })
