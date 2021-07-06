@@ -4,8 +4,7 @@ on:
   pull_request:
     types: [closed]
     branches:
-      - 'release/**'
-      - 'hotfix/**'
+      - 'master'
 
 jobs:
   pull-request:
@@ -35,5 +34,6 @@ jobs:
           VNUM3=${VERSION_BITS[2]}
           VNUM3=$((VNUM3+1))
           VERSION="$VNUM1.$VNUM2.$VNUM3"
+        fi
         git tag $VERSION
         git push --tag
