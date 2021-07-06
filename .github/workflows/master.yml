@@ -19,6 +19,7 @@ jobs:
     - name: pull-request
       uses: repo-sync/pull-request@v2
       with:
+        pr_title: "Sync master to develop (${{ github.event.pull_request.head.ref }})"
         source_branch: ${{ github.event.pull_request.head.ref }}
         destination_branch: "develop"
         github_token: ${{ secrets.GITHUB_TOKEN }}
