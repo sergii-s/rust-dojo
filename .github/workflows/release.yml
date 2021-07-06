@@ -23,10 +23,11 @@ jobs:
     - name: Checkout
       uses: actions/checkout@v2
       with:
-        ref: 'develop'
+        ref: 'master'
     - run: |
+        git checkout develop
         git checkout -b release/v${{ github.event.inputs.version }}
-        git merge origin/master
+        git merge master
         git push --set-upstream origin release/v${{ github.event.inputs.version }}
     - name: pull-request
       uses: repo-sync/pull-request@v2  
