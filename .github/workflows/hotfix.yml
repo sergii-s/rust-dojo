@@ -3,8 +3,8 @@ name: Auto => Create HotFix
 on: 
   pull_request:
     types: [opened, reopened]
-    branches:
-    - 'fix/**'
+    # branches:
+    # - 'fix/**'
 
 jobs:
   pull-request:
