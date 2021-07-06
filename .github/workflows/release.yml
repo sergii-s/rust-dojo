@@ -18,7 +18,7 @@ jobs:
         fetch-depth: 0
     - run: |
         git fetch --tags
-        git fetch --no-tags --unshallow origin master
+        git fetch --no-tags origin master
         VERSION=`git describe --match "${{ github.event.inputs.major-version }}.[0-9]*" --abbrev=0 --tags || echo "${{ github.event.inputs.major-version }}.0"`
         VERSION_BITS=(${VERSION//./ })
         VNUM1=${VERSION_BITS[0]}
@@ -34,7 +34,6 @@ jobs:
         git merge origin/master
         git push --set-upstream origin release/$VERSION
       id: release-branch
-      # todo commit version to file
     - name: pull-request
       uses: repo-sync/pull-request@v2  
       with:
