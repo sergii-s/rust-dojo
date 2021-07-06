@@ -4,8 +4,8 @@ on:
   workflow_dispatch:
     inputs:
       major-version:
-        description: 'Major version of release, e.g. 1.0 for 1.0.* releases'
-        default: '1.0'
+        description: 'Release version, keep auto for minor version upgrade. Or a custom version, e.g. `3.0.0` for major version upgrade'
+        default: 'auto'
         required: false
 
 jobs:
@@ -18,14 +18,20 @@ jobs:
         fetch-depth: 0
     - run: |
         git fetch --tags
-        git fetch --no-tags --unshallow origin master
-        VERSION=`git describe --match "${{ github.event.inputs.major-version }}.[0-9]*" --abbrev=0 --tags || echo "${{ github.event.inputs.major-version }}.0"`
-        VERSION_BITS=(${VERSION//./ })
-        VNUM1=${VERSION_BITS[0]}
-        VNUM2=${VERSION_BITS[1]}
-        VNUM3=${VERSION_BITS[2]}
-        VNUM3=$((VNUM3+1))
-        VERSION="$VNUM1.$VNUM2.$VNUM3"
+        git fetch --no-tags origin master
+        if [ '${{ github.event.inputs.major-version }}' = 'auto' ]
+        then
+          VERSION=`git describe --match "[0-9]*.[0-9]*.[0-9]*" --abbrev=0 --tags || echo "1.0.0"`
+          VERSION_BITS=(${VERSION//./ })
+          VNUM1=${VERSION_BITS[0]}
+          VNUM2=${VERSION_BITS[1]}
+          VNUM2=$((VNUM2+1))
+          VNUM3=${VERSION_BITS[2]}
+          VNUM3=0
+          VERSION="$VNUM1.$VNUM2.$VNUM3"
+        else
+          VERSION="${{ github.event.inputs.major-version }}"
+        fi
         echo "::set-output name=version::$VERSION"
         git checkout develop
         git checkout -b release/$VERSION
@@ -34,7 +40,6 @@ jobs:
         git merge origin/master
         git push --set-upstream origin release/$VERSION
       id: release-branch
-      # todo commit version to file
     - name: pull-request
       uses: repo-sync/pull-request@v2  
       with:
