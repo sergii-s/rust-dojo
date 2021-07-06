@@ -24,7 +24,7 @@ jobs:
         VNUM3=${VERSION_BITS[2]}
         VNUM3=$((VNUM3+1))
         VERSION="$VNUM1.$VNUM2.$VNUM3"
-        echo '::set-output name=version::$VERSION'
+        echo "::set-output name=version::$VERSION"
         git checkout develop
         git checkout -b release/$VERSION
         git config --global user.name "GitHub Action"
