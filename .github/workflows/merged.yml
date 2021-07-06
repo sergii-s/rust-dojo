@@ -2,7 +2,7 @@ name: Auto => Master tag and synchronize
 
 on: 
   pull_request:
-    types: [closed]
+    types: [closed, assigned]
     branches:
       - 'release/**'
       - 'hotfix/**'
