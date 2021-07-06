@@ -2,10 +2,9 @@ name: Auto => Master tag and synchronize
 
 on: 
   pull_request:
-    types: [closed, assigned]
+    types: [closed]
     branches:
       - 'master'
-      # - 'hotfix/**'
 
 jobs:
   pull-request:
