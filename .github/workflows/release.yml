@@ -38,11 +38,14 @@ jobs:
         git config --global user.name ${{ github.actor }}
         git merge origin/master
         git push --set-upstream origin release/$VERSION
+        MESSAGE=`git log --merges --first-parent master..HEAD --pretty=format:'- [ ] \`%h\` - %s' | sed -E 's|Merge pull request (#[0-9]+).*|PR \1|'`
+        echo "::set-output name=message::$MESSAGE"
       id: release-branch
     - name: pull-request
       uses: repo-sync/pull-request@v2  
       with:
         pr_title: "Release ${{ steps.release-branch.outputs.version }}"
+        pr_description: "${{ steps.release-branch.outputs.message }}"
         source_branch: release/${{ steps.release-branch.outputs.version }}
         destination_branch: "master"
         github_token: ${{ secrets.GITHUB_TOKEN }}
