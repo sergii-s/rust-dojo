@@ -15,6 +15,7 @@ jobs:
     - uses: actions/checkout@v2  
       with:
         ref: master
+        fetch-depth: 0
     - name: pull-request
       uses: repo-sync/pull-request@v2
       with:
