@@ -1,20 +1,12 @@
-# This is a basic workflow that is manually triggered
-
 name: Manual => Create Release
 
-# Controls when the action will run. Workflow runs when manually triggered using the UI
-# or API.
 on: 
   workflow_dispatch:
-    # Inputs the workflow accepts.
     inputs:
-      version:
-    #     # Friendly description to be shown in the UI instead of 'name'
-    #     description: 'Person to greet'
-    #     # Default value if no value is explicitly provided
-    #     default: 'World'
-    #     # Input has to be provided for the workflow to run
-        required: true
+      major-version:
+        description: 'Major version of release, e.g. 1.0 for 1.0.* releases'
+        default: '1.0'
+        required: false
 
 jobs:
   release:
@@ -25,16 +17,25 @@ jobs:
         ref: develop    
     - run: |
         git fetch --no-tags --unshallow origin master
+        VERSION=`git describe --match "${{ github.event.inputs.version }}.[0-9]*" --abbrev=0 --tags || ${{ github.event.inputs.version }}.0`
+        VERSION_BITS=(${VERSION//./ })
+        VNUM1=${VERSION_BITS[0]}
+        VNUM2=${VERSION_BITS[1]}
+        VNUM3=${VERSION_BITS[2]}
+        VNUM3=$((VNUM3+1))
+        VERSION="$VNUM1.$VNUM2.$VNUM3"
+        echo '::set-output version=$VERSION'
         git checkout develop
-        git checkout -b release/v${{ github.event.inputs.version }}
+        git checkout -b release/$VERSION
         git config --global user.name "GitHub Action"
         git config --global user.email "github-action@users.noreply.github.com"
         git merge origin/master
-        git push --set-upstream origin release/v${{ github.event.inputs.version }}
+        git push --set-upstream origin release/$VERSION
+      id: release-branch
     - name: pull-request
       uses: repo-sync/pull-request@v2  
       with:
-        pr_title: "Release ${{ github.event.inputs.version }}"
-        source_branch: release/v${{ github.event.inputs.version }}
+        pr_title: "Release ${{ steps.release-branch.outputs.version }}"
+        source_branch: release/${{ steps.release-branch.outputs.version }}
         destination_branch: "master"
         github_token: ${{ secrets.GITHUB_TOKEN }}
