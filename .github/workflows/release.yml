@@ -20,15 +20,10 @@ jobs:
   release:
     runs-on: ubuntu-latest
     steps:
-    - name: Checkout
-      uses: actions/checkout@v2
-      with:
-        ref: 'master'
-    - name: Checkout
-      uses: actions/checkout@v2
-      with:
-        ref: 'develop'
+    - uses: actions/checkout@v2
     - run: |
+        git checkout master
+        git checkout develop
         git checkout -b release/v${{ github.event.inputs.version }}
         git merge master
         git push --set-upstream origin release/v${{ github.event.inputs.version }}
