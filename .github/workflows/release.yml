@@ -21,6 +21,11 @@ jobs:
     runs-on: ubuntu-latest
     steps:
     - uses: actions/checkout@v2
+      with:
+        ref: master
+    - uses: actions/checkout@v2
+      with:
+        ref: develop    
     - run: |
         git checkout master
         git checkout develop
