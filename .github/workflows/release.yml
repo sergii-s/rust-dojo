@@ -32,6 +32,7 @@ jobs:
         git merge origin/master
         git push --set-upstream origin release/$VERSION
       id: release-branch
+      # todo commit version to file
     - name: pull-request
       uses: repo-sync/pull-request@v2  
       with:
