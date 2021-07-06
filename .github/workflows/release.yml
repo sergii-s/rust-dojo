@@ -22,15 +22,11 @@ jobs:
     steps:
     - uses: actions/checkout@v2
       with:
-        ref: master
-    - uses: actions/checkout@v2
-      with:
         ref: develop    
     - run: |
-        git checkout master
-        git checkout develop
+        git fetch --no-tags --depth=1 origin master
         git checkout -b release/v${{ github.event.inputs.version }}
-        git merge master
+        git merge origin/master
         git push --set-upstream origin release/v${{ github.event.inputs.version }}
     - name: pull-request
       uses: repo-sync/pull-request@v2  
