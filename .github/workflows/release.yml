@@ -1,6 +1,6 @@
 # This is a basic workflow that is manually triggered
 
-name: Release
+name: 0 Manual => Create Release
 
 # Controls when the action will run. Workflow runs when manually triggered using the UI
 # or API.
@@ -25,6 +25,7 @@ jobs:
         ref: develop    
     - run: |
         git fetch --no-tags --depth=1 origin master
+        git checkout develop
         git checkout -b release/v${{ github.event.inputs.version }}
         git merge origin/master
         git push --set-upstream origin release/v${{ github.event.inputs.version }}
