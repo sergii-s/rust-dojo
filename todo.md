@@ -16,7 +16,6 @@ xx
 
 To see :
 * environment setup
-awesome 
 
 ## 2. Practice (a + b) / c
 Read three int numbers from input.
