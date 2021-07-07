@@ -1,6 +1,6 @@
 name: Auto => Master tag and synchronize
 
-on: 
+on:
   pull_request:
     types: [closed]
     branches:
@@ -9,37 +9,36 @@ on:
 jobs:
   pull-request:
     if: |
-      github.event.pull_request.merged == true 
+      github.event.pull_request.merged == true
     runs-on: ubuntu-latest
     steps:
-    - uses: actions/checkout@v2  
-      with:
-        ref: master
-        fetch-depth: 0
-    - name: pull-request
-      uses: repo-sync/pull-request@v2
-      with:
-        pr_title: "Sync master to develop (${{ github.event.pull_request.head.ref }})"
-        source_branch: ${{ github.event.pull_request.head.ref }}
-        destination_branch: "develop"
-        github_token: ${{ secrets.GITHUB_TOKEN }}
-    - name: tag-master
-      run: |
-        SOURCE=${{ github.event.pull_request.head.ref }}
-        BRANCH=`echo ${SOURCE%%/*}`
-        if [ $BRANCH = 'release' ] 
-        then
-          VERSION=`echo ${SOURCE##*/}`
-        else
-          git checkout master
-          git fetch --tags
-          VERSION=`git describe --match "[0-9]*.[0-9]*.[0-9]*" --abbrev=0 --tags || echo "1.0.0"`
-          VERSION_BITS=(${VERSION//./ })
-          VNUM1=${VERSION_BITS[0]}
-          VNUM2=${VERSION_BITS[1]}
-          VNUM3=${VERSION_BITS[2]}
-          VNUM3=$((VNUM3+1))
-          VERSION="$VNUM1.$VNUM2.$VNUM3"
-        fi
-        git tag $VERSION
-        git push --tag
+      - uses: actions/checkout@v2
+        with:
+          ref: master
+          fetch-depth: 0
+      - name: pull-request
+        uses: repo-sync/pull-request@v2
+        with:
+          pr_title: "Sync master to develop (${{ github.event.pull_request.head.ref }})"
+          source_branch: ${{ github.event.pull_request.head.ref }}
+          destination_branch: "develop"
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+      - name: tag-master
+        run: |
+          SOURCE=${{ github.event.pull_request.head.ref }}
+          BRANCH=`echo ${SOURCE%%/*}`
+          if [ $BRANCH = 'release' ]
+          then
+            VERSION=`echo ${SOURCE##*/}`
+          else
+            git checkout master
+            git fetch --tags
+            VERSION=`git describe --match "[0-9]*.[0-9]*.[0-9]*" --abbrev=0 --tags || echo "1.0.0"`
+            VERSION_BITS=(${VERSION//./ })
+            VNUM1=${VERSION_BITS[0]}
+            VNUM2=${VERSION_BITS[1]}
+            VNUM3=$((VERSION_BITS[2]+1))
+            VERSION="$VNUM1.$VNUM2.$VNUM3"
+          fi
+          git tag $VERSION
+          git push --tag

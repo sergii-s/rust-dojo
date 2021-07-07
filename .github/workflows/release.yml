@@ -1,6 +1,6 @@
 name: Manual => Create Release
 
-on: 
+on:
   workflow_dispatch:
     inputs:
       major-version:
@@ -12,40 +12,41 @@ jobs:
   release:
     runs-on: ubuntu-latest
     steps:
-    - uses: actions/checkout@v2
-      with:
-        ref: develop    
-        fetch-depth: 0
-    - run: |
-        git fetch --tags
-        git fetch --no-tags origin master
-        if [ '${{ github.event.inputs.major-version }}' = 'auto' ]
-        then
-          VERSION=`git describe --match "[0-9]*.[0-9]*.[0-9]*" --abbrev=0 --tags || echo "1.0.0"`
-          VERSION_BITS=(${VERSION//./ })
-          VNUM1=${VERSION_BITS[0]}
-          VNUM2=${VERSION_BITS[1]}
-          VNUM2=$((VNUM2+1))
-          VNUM3=${VERSION_BITS[2]}
-          VNUM3=0
-          VERSION="$VNUM1.$VNUM2.$VNUM3"
-        else
-          VERSION="${{ github.event.inputs.major-version }}"
-        fi
-        echo "::set-output name=version::$VERSION"
-        git checkout develop
-        MESSAGE=`git log --merges --first-parent origin/master..HEAD --pretty=format:'- [ ] \`%h\` - %s' | sed -E 's|Merge pull request (#[0-9]+).*|PR \1|'`
-        git checkout -b release/$VERSION
-        git config --global user.name ${{ github.actor }}
-        git merge origin/master
-        git push --set-upstream origin release/$VERSION
-        echo "::set-output name=message::$MESSAGE"
-      id: release-branch
-    - name: pull-request
-      uses: repo-sync/pull-request@v2  
-      with:
-        pr_title: "Release ${{ steps.release-branch.outputs.version }}"
-        pr_body: "${{ steps.release-branch.outputs.message }}"
-        source_branch: release/${{ steps.release-branch.outputs.version }}
-        destination_branch: "master"
-        github_token: ${{ secrets.GITHUB_TOKEN }}
+      - uses: actions/checkout@v2
+        with:
+          ref: develop
+          fetch-depth: 0
+      - run: |
+          git fetch --tags
+          git fetch --no-tags origin master
+          if [ '${{ github.event.inputs.major-version }}' = 'auto' ]
+          then
+            VERSION=`git describe --match "[0-9]*.[0-9]*.[0-9]*" --abbrev=0 --tags || echo "1.0.0"`
+            VERSION_BITS=(${VERSION//./ })
+            VNUM1=${VERSION_BITS[0]}
+            VNUM2=$((VERSION_BITS[1]+1))
+            VNUM3=0
+            VERSION="$VNUM1.$VNUM2.$VNUM3"
+          else
+            VERSION="${{ github.event.inputs.major-version }}"
+          fi
+          echo "::set-output name=version::$VERSION"
+          git checkout develop
+          MESSAGE=`git log --merges --first-parent origin/master..HEAD --pretty=format:'- [ ] \`%h\` - %s' | sed -E 's|Merge pull request (#[0-9]+).*|PR \1|'`
+          git checkout -b release/$VERSION
+          git config --global user.name ${{ github.actor }}
+          git merge origin/master
+          git push --set-upstream origin release/$VERSION
+          MESSAGE="${MESSAGE//'%'/'%25'}"
+          MESSAGE="${MESSAGE//$'\n'/'%0A'}"
+          MESSAGE="${MESSAGE//$'\r'/'%0D'}"
+          echo "::set-output name=message::$MESSAGE"
+        id: release-branch
+      - name: pull-request
+        uses: repo-sync/pull-request@v2
+        with:
+          pr_title: "Release ${{ steps.release-branch.outputs.version }}"
+          pr_body: "${{ steps.release-branch.outputs.message }}"
+          source_branch: release/${{ steps.release-branch.outputs.version }}
+          destination_branch: "master"
+          github_token: ${{ secrets.GITHUB_TOKEN }}
