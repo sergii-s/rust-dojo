@@ -1,7 +1,6 @@
 # Goal
 * Lexical structure
 * Type structure 
-    * unions
     * traits
     * functions
 * Railway
@@ -16,7 +15,6 @@ xx
 
 To see :
 * environment setup
-awesome 
 
 ## 2. Practice (a + b) / c
 Read three int numbers from input.
@@ -31,6 +29,7 @@ Implement Mars rover logic.
 Mars rover has it position and can execute commands.
 O -> terre
 X -> mountain
+
 * Commands are sent as text.
     * move-forward-x
     * move-backward-x
