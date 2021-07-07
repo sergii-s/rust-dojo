@@ -1,7 +1,6 @@
 # Goal
 * Lexical structure
 * Type structure 
-    * unions
     * traits
     * functions
 * Railway
@@ -30,6 +29,7 @@ Implement Mars rover logic.
 Mars rover has it position and can execute commands.
 O -> terre
 X -> mountain
+
 * Commands are sent as text.
     * move-forward-x
     * move-backward-x
