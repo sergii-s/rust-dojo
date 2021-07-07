@@ -1,7 +1,6 @@
 # Goal
 * Lexical structure
 * Type structure 
-    * unions
     * traits
     * functions
 * Railway
